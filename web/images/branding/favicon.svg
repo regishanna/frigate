@@ -3,12 +3,15 @@
 
 <svg
    width="210mm"
-   height="297mm"
-   viewBox="0 0 210 297"
+   height="210mm"
+   viewBox="0 0 210 210"
    version="1.1"
    id="svg1"
-   sodipodi:docname="Logolachouette.svg"
-   inkscape:version="1.3.2 (091e20e, 2023-11-25)"
+   sodipodi:docname="favicon.svg"
+   inkscape:version="1.2.2 (b0a8486541, 2022-12-01)"
+   inkscape:export-filename="Logolachouette/favicon48x48.png"
+   inkscape:export-xdpi="5.8057141"
+   inkscape:export-ydpi="5.8057141"
    xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
    xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
    xmlns="http://www.w3.org/2000/svg"
@@ -23,15 +26,16 @@
      inkscape:pagecheckerboard="0"
      inkscape:deskcolor="#d1d1d1"
      inkscape:document-units="mm"
-     inkscape:zoom="1.1893651"
-     inkscape:cx="618.81756"
-     inkscape:cy="518.34379"
-     inkscape:window-width="1920"
-     inkscape:window-height="1054"
+     inkscape:zoom="0.84100813"
+     inkscape:cx="469.67441"
+     inkscape:cy="412.60005"
+     inkscape:window-width="1638"
+     inkscape:window-height="996"
      inkscape:window-x="0"
-     inkscape:window-y="26"
-     inkscape:window-maximized="0"
-     inkscape:current-layer="layer1" />
+     inkscape:window-y="0"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="layer1"
+     showgrid="false" />
   <defs
      id="defs1">
     <clipPath
@@ -79,9 +83,18 @@
      inkscape:label="Calque 1"
      inkscape:groupmode="layer"
      id="layer1">
+    <rect
+       style="fill:#ffffff;fill-opacity:1;stroke-width:0.264583"
+       id="rect1757"
+       width="204.17584"
+       height="204.17584"
+       x="2.7908702"
+       y="2.8523152"
+       rx="10.479944"
+       ry="10.479944" />
     <g
        id="g16"
-       transform="translate(2.6694913,-8.8983052)">
+       transform="matrix(1.415306,0,0,1.4558516,-53.768426,-125.26017)">
       <path
          id="path85"
          clip-path="url(#clipPath86)"

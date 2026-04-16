@@ -30,7 +30,6 @@ export default function Logo({ className }: LogoProps) {
         clipPath="url(#b)"
         style={{
           display: "inline",
-          fill: "#fff",
           fillOpacity: 1,
           fillRule: "nonzero",
           stroke: "none",
