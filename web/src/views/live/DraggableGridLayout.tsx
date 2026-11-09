@@ -14,10 +14,9 @@ import React, {
   useState,
 } from "react";
 import {
-  ItemCallback,
   Layout,
-  Responsive,
-  WidthProvider,
+  LayoutItem,
+  ResponsiveGridLayout as Responsive,
 } from "react-grid-layout";
 import "react-grid-layout/css/styles.css";
 import "react-resizable/css/styles.css";
@@ -33,6 +32,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useResizeObserver } from "@/hooks/resize-observer";
 import { isEqual } from "lodash";
 import useSWR from "swr";
+import { useIsAdmin } from "@/hooks/use-is-admin";
 import { isDesktop, isMobile } from "react-device-detect";
 import BirdseyeLivePlayer from "@/components/player/BirdseyeLivePlayer";
 import LivePlayer from "@/components/player/LivePlayer";
@@ -56,7 +56,7 @@ type DraggableGridLayoutProps = {
   cameras: CameraConfig[];
   cameraGroup: string;
   cameraRef: (node: HTMLElement | null) => void;
-  containerRef: React.RefObject<HTMLDivElement>;
+  containerRef: React.RefObject<HTMLDivElement | null>;
   includeBirdseye: boolean;
   onSelectCamera: (camera: string) => void;
   windowVisible: boolean;
@@ -98,6 +98,7 @@ export default function DraggableGridLayout({
 }: DraggableGridLayoutProps) {
   const { t } = useTranslation(["views/live"]);
   const { data: config } = useSWR<FrigateConfig>("config");
+  const isAdmin = useIsAdmin();
   const birdseyeConfig = useMemo(() => config?.birdseye, [config]);
 
   // preferred live modes per camera
@@ -116,11 +117,8 @@ export default function DraggableGridLayout({
 
   // grid layout
 
-  const ResponsiveGridLayout = useMemo(() => WidthProvider(Responsive), []);
-
-  const [gridLayout, setGridLayout, isGridLayoutLoaded] = useUserPersistence<
-    Layout[]
-  >(`${cameraGroup}-draggable-layout`);
+  const [gridLayout, setGridLayout, isGridLayoutLoaded] =
+    useUserPersistence<Layout>(`${cameraGroup}-draggable-layout`);
 
   const [group] = useUserPersistedOverlayState(
     "cameraGroup",
@@ -158,11 +156,11 @@ export default function DraggableGridLayout({
   const [currentIncludeBirdseye, setCurrentIncludeBirdseye] =
     useState<boolean>();
   const [currentGridLayout, setCurrentGridLayout] = useState<
-    Layout[] | undefined
+    Layout | undefined
   >();
 
   const handleLayoutChange = useCallback(
-    (currentLayout: Layout[]) => {
+    (currentLayout: Layout) => {
       if (!isGridLayoutLoaded || !isEqual(gridLayout, currentGridLayout)) {
         return;
       }
@@ -174,7 +172,7 @@ export default function DraggableGridLayout({
   );
 
   const generateLayout = useCallback(
-    (baseLayout: Layout[] | undefined) => {
+    (baseLayout: Layout | undefined) => {
       if (!isGridLayoutLoaded) {
         return;
       }
@@ -184,7 +182,7 @@ export default function DraggableGridLayout({
           ? ["birdseye", ...cameras.map((camera) => camera?.name || "")]
           : cameras.map((camera) => camera?.name || "");
 
-      const optionsMap: Layout[] = baseLayout
+      const optionsMap: LayoutItem[] = baseLayout
         ? baseLayout.filter((layout) => cameraNames?.includes(layout.i))
         : [];
 
@@ -363,12 +361,14 @@ export default function DraggableGridLayout({
     );
   }, [availableWidth, marginValue]);
 
-  const handleResize: ItemCallback = (
-    _: Layout[],
-    oldLayoutItem: Layout,
-    layoutItem: Layout,
-    placeholder: Layout,
+  const handleResize = (
+    _layout: Layout,
+    oldLayoutItem: LayoutItem | null,
+    layoutItem: LayoutItem | null,
+    placeholder: LayoutItem | null,
   ) => {
+    if (!oldLayoutItem || !layoutItem || !placeholder) return;
+
     const heightDiff = layoutItem.h - oldLayoutItem.h;
     const widthDiff = layoutItem.w - oldLayoutItem.w;
     const changeCoef = oldLayoutItem.w / oldLayoutItem.h;
@@ -537,8 +537,9 @@ export default function DraggableGridLayout({
             currentGroups={groups}
             activeGroup={group}
           />
-          <ResponsiveGridLayout
+          <Responsive
             className="grid-layout"
+            width={availableWidth ?? window.innerWidth}
             layouts={{
               lg: currentGridLayout,
               md: currentGridLayout,
@@ -551,13 +552,17 @@ export default function DraggableGridLayout({
             cols={{ lg: 12, md: 12, sm: 12, xs: 12, xxs: 12 }}
             margin={[marginValue, marginValue]}
             containerPadding={[0, isEditMode ? 6 : 3]}
-            resizeHandles={isEditMode ? ["sw", "nw", "se", "ne"] : []}
+            resizeConfig={{
+              enabled: isEditMode,
+              handles: isEditMode ? ["sw", "nw", "se", "ne"] : [],
+            }}
+            dragConfig={{
+              enabled: isEditMode,
+            }}
             onDragStop={handleLayoutChange}
             onResize={handleResize}
             onResizeStart={() => setShowCircles(false)}
             onResizeStop={handleLayoutChange}
-            isDraggable={isEditMode}
-            isResizable={isEditMode}
           >
             {includeBirdseye && birdseyeConfig?.enabled && (
               <BirdseyeLivePlayerGridItem
@@ -629,9 +634,10 @@ export default function DraggableGridLayout({
                   toggleStats={() => toggleStats(camera.name)}
                   volumeState={volumeStates[camera.name]}
                   setVolumeState={(value) =>
-                    setVolumeStates({
+                    setVolumeStates((prev) => ({
+                      ...prev,
                       [camera.name]: value,
-                    })
+                    }))
                   }
                   muteAll={muteAll}
                   unmuteAll={unmuteAll}
@@ -685,7 +691,7 @@ export default function DraggableGridLayout({
                 </GridLiveContextMenu>
               );
             })}
-          </ResponsiveGridLayout>
+          </Responsive>
           {isDesktop && (
             <div
               className={cn(
@@ -719,7 +725,7 @@ export default function DraggableGridLayout({
               </Tooltip>
               {!isEditMode && (
                 <>
-                  {!fullscreen && (
+                  {!fullscreen && isAdmin && (
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <div

@@ -81,6 +81,7 @@ function MSEPlayer({
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTIDRef = useRef<number | null>(null);
   const intentionalDisconnectRef = useRef<boolean>(false);
+  const onCloseRef = useRef<(() => void) | null>(null);
   const ondataRef = useRef<((data: ArrayBufferLike) => void) | null>(null);
   const onmessageRef = useRef<{
     [key: string]: (msg: { value: string; type: string }) => void;
@@ -167,6 +168,8 @@ function MSEPlayer({
     wsRef.current = new WebSocket(wsURL);
     wsRef.current.binaryType = "arraybuffer";
     wsRef.current.addEventListener("open", onOpen);
+    // Capture current onClose identity so removeEventListener can find it later
+    onCloseRef.current = onClose;
     wsRef.current.addEventListener("close", onClose);
     // we know that these deps are correct
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -200,20 +203,23 @@ function MSEPlayer({
       intentionalDisconnectRef.current = true;
       setWsState(WebSocket.CLOSED);
 
-      // Remove event listeners to prevent them firing during close
+      // Remove event listeners to prevent them firing during close.
+      // Use onCloseRef to remove the exact function that was attached in onConnect,
+      // since onClose may have been recreated by React since then.
       try {
         ws.removeEventListener("open", onOpen);
-        ws.removeEventListener("close", onClose);
+        if (onCloseRef.current) {
+          ws.removeEventListener("close", onCloseRef.current);
+          onCloseRef.current = null;
+        }
       } catch {
         // Ignore errors removing listeners
       }
 
-      // Only call close() if the socket is OPEN or CLOSING
-      // For CONNECTING or CLOSED sockets, just let it die
-      if (
-        currentReadyState === WebSocket.OPEN ||
-        currentReadyState === WebSocket.CLOSING
-      ) {
+      // Close the socket in any non-CLOSED state, including CONNECTING.
+      // A CONNECTING socket that is not closed will complete its handshake
+      // and remain open, leaking a browser connection.
+      if (currentReadyState !== WebSocket.CLOSED) {
         try {
           ws.close();
         } catch {
@@ -467,7 +473,7 @@ function MSEPlayer({
           } else if (sb.buffered && sb.buffered.length) {
             const end = sb.buffered.end(sb.buffered.length - 1) - 15;
             const start = sb.buffered.start(0);
-            if (end > start) {
+            if (end - start > 1) {
               sb.remove(start, end);
               msRef.current?.setLiveSeekableRange(end, end + 15);
             }

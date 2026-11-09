@@ -4,7 +4,6 @@ import multiprocessing as mp
 import signal
 import sys
 import threading
-from typing import Union
 
 import ruamel.yaml
 from pydantic import ValidationError
@@ -16,7 +15,9 @@ from frigate.util.config import find_config_file
 
 
 def main() -> None:
-    manager = mp.Manager()
+    # Fork this manager so the forkserver does not start until the first
+    # worker process, after the config has applied environment_vars.
+    manager = mp.get_context("fork").Manager()
     faulthandler.enable()
 
     # Setup the logging thread
@@ -54,7 +55,7 @@ def main() -> None:
         print("*************************************************************\n")
         # Attempt to get the original config file for line number tracking
         config_path = find_config_file()
-        with open(config_path, "r") as f:
+        with open(config_path) as f:
             yaml_config = ruamel.yaml.YAML()
             yaml_config.preserve_quotes = True
             full_config = yaml_config.load(f)
@@ -68,7 +69,7 @@ def main() -> None:
 
             try:
                 for i, part in enumerate(error_path):
-                    key: Union[int, str] = (
+                    key: int | str = (
                         int(part) if isinstance(part, str) and part.isdigit() else part
                     )
 

@@ -3,8 +3,9 @@
 import logging
 import multiprocessing as mp
 import threading
+from collections.abc import Callable
 from multiprocessing.synchronize import Event as MpEvent
-from typing import Any, Callable
+from typing import Any
 
 import zmq
 
@@ -61,8 +62,8 @@ class InterProcessCommunicator(Communicator):
     def stop(self) -> None:
         self.stop_event.set()
         self.reader_thread.join()
-        self.socket.close()
-        self.context.destroy()
+        self.socket.close(linger=0)
+        self.context.destroy(linger=0)
 
 
 class InterProcessRequestor:
@@ -72,15 +73,17 @@ class InterProcessRequestor:
         self.context = zmq.Context()
         self.socket = self.context.socket(zmq.REQ)
         self.socket.connect(SOCKET_REP_REQ)
+        self.lock = threading.Lock()
 
     def send_data(self, topic: str, data: Any) -> Any:
         """Sends data and then waits for reply."""
-        try:
-            self.socket.send_json((topic, data))
-            return self.socket.recv_json()
-        except zmq.ZMQError:
-            return ""
+        with self.lock:
+            try:
+                self.socket.send_json((topic, data))
+                return self.socket.recv_json()
+            except zmq.ZMQError:
+                return ""
 
     def stop(self) -> None:
-        self.socket.close()
-        self.context.destroy()
+        self.socket.close(linger=0)
+        self.context.destroy(linger=0)

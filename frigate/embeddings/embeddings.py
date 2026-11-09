@@ -6,9 +6,10 @@ import logging
 import os
 import threading
 import time
+from typing import Any
 
 import numpy as np
-from peewee import DoesNotExist, IntegrityError
+from peewee import DatabaseError, DoesNotExist, IntegrityError
 from PIL import Image
 from playhouse.shortcuts import model_to_dict
 
@@ -28,6 +29,7 @@ from frigate.types import ModelStatusTypesEnum
 from frigate.util.builtin import EventsPerSecond, InferenceSpeed, serialize
 from frigate.util.file import get_event_thumbnail_bytes
 
+from .genai_embedding import GenAIEmbedding
 from .onnx.jina_v1_embedding import JinaV1ImageEmbedding, JinaV1TextEmbedding
 from .onnx.jina_v2_embedding import JinaV2Embedding
 
@@ -73,6 +75,7 @@ class Embeddings:
         config: FrigateConfig,
         db: SqliteVecQueueDatabase,
         metrics: DataProcessorMetrics,
+        genai_manager=None,
     ) -> None:
         self.config = config
         self.db = db
@@ -104,7 +107,27 @@ class Embeddings:
                 },
             )
 
-        if self.config.semantic_search.model == SemanticSearchModelEnum.jinav2:
+        model_cfg = self.config.semantic_search.model
+
+        if not isinstance(model_cfg, SemanticSearchModelEnum):
+            # GenAI provider
+            embeddings_client = (
+                genai_manager.embeddings_client if genai_manager else None
+            )
+            if not embeddings_client:
+                raise ValueError(
+                    f"semantic_search.model is '{model_cfg}' (GenAI provider) but "
+                    "no embeddings client is configured. Ensure the GenAI provider "
+                    "has 'embeddings' in its roles."
+                )
+            self.embedding = GenAIEmbedding(embeddings_client)
+            self.text_embedding = lambda input_data: self.embedding(
+                input_data, embedding_type="text"
+            )
+            self.vision_embedding = lambda input_data: self.embedding(
+                input_data, embedding_type="vision"
+            )
+        elif model_cfg == SemanticSearchModelEnum.jinav2:
             # Single JinaV2Embedding instance for both text and vision
             self.embedding = JinaV2Embedding(
                 model_size=self.config.semantic_search.model_size,
@@ -118,7 +141,8 @@ class Embeddings:
             self.vision_embedding = lambda input_data: self.embedding(
                 input_data, embedding_type="vision"
             )
-        else:  # Default to jinav1
+        else:
+            # Default to jinav1
             self.text_embedding = JinaV1TextEmbedding(
                 model_size=config.semantic_search.model_size,
                 requestor=self.requestor,
@@ -136,8 +160,11 @@ class Embeddings:
         self.metrics.text_embeddings_eps.value = self.text_eps.eps()
 
     def get_model_definitions(self):
-        # Version-specific models
-        if self.config.semantic_search.model == SemanticSearchModelEnum.jinav2:
+        model_cfg = self.config.semantic_search.model
+        if not isinstance(model_cfg, SemanticSearchModelEnum):
+            # GenAI provider: no ONNX models to download
+            models = []
+        elif model_cfg == SemanticSearchModelEnum.jinav2:
             models = [
                 "jinaai/jina-clip-v2-tokenizer",
                 "jinaai/jina-clip-v2-model_fp16.onnx"
@@ -181,12 +208,10 @@ class Embeddings:
         embedding = self.vision_embedding([thumbnail])[0]
 
         if upsert:
-            self.db.execute_sql(
-                """
-                INSERT OR REPLACE INTO vec_thumbnails(id, thumbnail_embedding)
-                VALUES(?, ?)
-                """,
-                (event_id, serialize(embedding)),
+            self.db.upsert_embeddings(
+                "vec_thumbnails",
+                "thumbnail_embedding",
+                {event_id: serialize(embedding)},
             )
 
         self.image_inference_speed.update(datetime.datetime.now().timestamp() - start)
@@ -225,22 +250,15 @@ class Embeddings:
         embeddings = self.vision_embedding(valid_thumbs)
 
         if upsert:
-            items = []
+            items = {}
             for i in range(len(valid_ids)):
-                items.append(valid_ids[i])
-                items.append(serialize(embeddings[i]))
+                items[valid_ids[i]] = serialize(embeddings[i])
                 self.image_eps.update()
 
-            self.db.execute_sql(
-                """
-                INSERT OR REPLACE INTO vec_thumbnails(id, thumbnail_embedding)
-                VALUES {}
-                """.format(", ".join(["(?, ?)"] * len(valid_ids))),
-                items,
-            )
+            self.db.upsert_embeddings("vec_thumbnails", "thumbnail_embedding", items)
 
         duration = datetime.datetime.now().timestamp() - start
-        self.text_inference_speed.update(duration / len(valid_ids))
+        self.image_inference_speed.update(duration / len(valid_ids))
 
         return embeddings
 
@@ -251,12 +269,10 @@ class Embeddings:
         embedding = self.text_embedding([description])[0]
 
         if upsert:
-            self.db.execute_sql(
-                """
-                INSERT OR REPLACE INTO vec_descriptions(id, description_embedding)
-                VALUES(?, ?)
-                """,
-                (event_id, serialize(embedding)),
+            self.db.upsert_embeddings(
+                "vec_descriptions",
+                "description_embedding",
+                {event_id: serialize(embedding)},
             )
 
         self.text_inference_speed.update(datetime.datetime.now().timestamp() - start)
@@ -276,19 +292,14 @@ class Embeddings:
 
         if upsert:
             ids = list(event_descriptions.keys())
-            items = []
+            items = {}
 
             for i in range(len(ids)):
-                items.append(ids[i])
-                items.append(serialize(embeddings[i]))
+                items[ids[i]] = serialize(embeddings[i])
                 self.text_eps.update()
 
-            self.db.execute_sql(
-                """
-                INSERT OR REPLACE INTO vec_descriptions(id, description_embedding)
-                VALUES {}
-                """.format(", ".join(["(?, ?)"] * len(ids))),
-                items,
+            self.db.upsert_embeddings(
+                "vec_descriptions", "description_embedding", items
             )
 
         self.text_inference_speed.update(datetime.datetime.now().timestamp() - start)
@@ -296,6 +307,17 @@ class Embeddings:
         return embeddings
 
     def reindex(self) -> None:
+        """Rebuild every tracked object embedding from scratch."""
+        totals: dict[str, Any] = {"status": "indexing"}
+
+        try:
+            self._reindex(totals)
+        except DatabaseError:
+            logger.exception("Unable to reindex tracked object embeddings")
+            totals["status"] = "failed"
+            self.requestor.send_data(UPDATE_EMBEDDINGS_REINDEX_PROGRESS, totals)
+
+    def _reindex(self, totals: dict[str, Any]) -> None:
         logger.info("Indexing tracked object embeddings...")
 
         self.db.drop_embeddings_tables()
@@ -312,21 +334,26 @@ class Embeddings:
         # Get total count of events to process
         total_events = Event.select().count()
 
-        batch_size = (
-            4
-            if self.config.semantic_search.model == SemanticSearchModelEnum.jinav2
-            else 32
-        )
+        if not isinstance(self.config.semantic_search.model, SemanticSearchModelEnum):
+            batch_size = 1
+        elif self.config.semantic_search.model == SemanticSearchModelEnum.jinav2:
+            batch_size = 4
+        else:
+            batch_size = 32
         current_page = 1
 
-        totals = {
-            "thumbnails": 0,
-            "descriptions": 0,
-            "processed_objects": total_events - 1 if total_events < batch_size else 0,
-            "total_objects": total_events,
-            "time_remaining": 0 if total_events < batch_size else -1,
-            "status": "indexing",
-        }
+        totals.update(
+            {
+                "thumbnails": 0,
+                "descriptions": 0,
+                "processed_objects": total_events - 1
+                if total_events < batch_size
+                else 0,
+                "total_objects": total_events,
+                "time_remaining": 0 if total_events < batch_size else -1,
+                "status": "indexing",
+            }
+        )
 
         self.requestor.send_data(UPDATE_EMBEDDINGS_REINDEX_PROGRESS, totals)
 

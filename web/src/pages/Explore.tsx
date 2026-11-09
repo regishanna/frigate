@@ -23,6 +23,8 @@ import { toast } from "sonner";
 import useSWR from "swr";
 import useSWRInfinite from "swr/infinite";
 import { useDocDomain } from "@/hooks/use-doc-domain";
+import { JINA_EMBEDDING_MODELS } from "@/lib/const";
+import { useDateLocale } from "@/hooks/use-date-locale";
 
 const API_LIMIT = 25;
 
@@ -41,6 +43,8 @@ export default function Explore() {
 
   const { t } = useTranslation(["views/explore"]);
   const { getLocaleDocUrl } = useDocDomain();
+
+  const dateLocale = useDateLocale();
 
   const { data: config } = useSWR<FrigateConfig>("config", {
     revalidateOnFocus: false,
@@ -194,7 +198,19 @@ export default function Explore() {
 
     const [url, params] = searchQuery;
 
-    const isAscending = params.sort?.includes("date_asc");
+    // a start_time cursor only works when rows are ordered by start_time,
+    // so every other sort pages by offset
+    const isDateSort =
+      params.sort === "date_asc" ||
+      params.sort === "date_desc" ||
+      (!params.sort && url === "events");
+
+    if (pageIndex > 0 && !isDateSort) {
+      return [
+        url,
+        { ...params, offset: pageIndex * API_LIMIT, limit: API_LIMIT },
+      ];
+    }
 
     if (pageIndex > 0 && previousPageData) {
       const lastDate = previousPageData[previousPageData.length - 1].start_time;
@@ -202,7 +218,8 @@ export default function Explore() {
         url,
         {
           ...params,
-          [isAscending ? "after" : "before"]: lastDate.toString(),
+          [params.sort === "date_asc" ? "after" : "before"]:
+            lastDate.toString(),
           limit: API_LIMIT,
         },
       ];
@@ -234,10 +251,17 @@ export default function Explore() {
     },
   });
 
-  const searchResults = useMemo(
-    () => (data ? ([] as SearchResult[]).concat(...data) : []),
-    [data],
-  );
+  // offset pages can overlap when results shift between page fetches
+  const searchResults = useMemo(() => {
+    if (!data) return [];
+
+    const seen = new Set<string>();
+    return data.flat().filter((result) => {
+      if (seen.has(result.id)) return false;
+      seen.add(result.id);
+      return true;
+    });
+  }, [data]);
   const isLoadingInitialData = !data && !isValidating;
   const isLoadingMore =
     isLoadingInitialData ||
@@ -293,7 +317,12 @@ export default function Explore() {
   const modelVersion = config?.semantic_search.model || "jinav1";
   const modelSize = config?.semantic_search.model_size || "small";
 
-  // Text model state
+  // GenAI providers have no local models to download
+  const isGenaiEmbeddings =
+    typeof modelVersion === "string" &&
+    !(JINA_EMBEDDING_MODELS as readonly string[]).includes(modelVersion);
+
+  // Text model state (skipped for GenAI - no local models)
   const { payload: textModelState } = useModelState(
     modelVersion === "jinav1"
       ? "jinaai/jina-clip-v1-text_model_fp16.onnx"
@@ -328,6 +357,10 @@ export default function Explore() {
   );
 
   const allModelsLoaded = useMemo(() => {
+    if (isGenaiEmbeddings) {
+      return true;
+    }
+
     return (
       textModelState === "downloaded" &&
       textTokenizerState === "downloaded" &&
@@ -335,6 +368,7 @@ export default function Explore() {
       visionFeatureExtractorState === "downloaded"
     );
   }, [
+    isGenaiEmbeddings,
     textModelState,
     textTokenizerState,
     visionModelState,
@@ -358,10 +392,11 @@ export default function Explore() {
     !defaultViewLoaded ||
     (config?.semantic_search.enabled &&
       (!reindexState ||
-        !textModelState ||
-        !textTokenizerState ||
-        !visionModelState ||
-        !visionFeatureExtractorState))
+        (!isGenaiEmbeddings &&
+          (!textModelState ||
+            !textTokenizerState ||
+            !visionModelState ||
+            !visionFeatureExtractorState))))
   ) {
     return (
       <ActivityIndicator className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2" />
@@ -405,7 +440,10 @@ export default function Explore() {
                             )}
                       </div>
                       {reindexState.time_remaining >= 0 &&
-                        (formatSecondsToDuration(reindexState.time_remaining) ||
+                        (formatSecondsToDuration(
+                          reindexState.time_remaining,
+                          dateLocale,
+                        ) ||
                           t(
                             "exploreIsUnavailable.embeddingsReindexing.finishingShortly",
                           ))}

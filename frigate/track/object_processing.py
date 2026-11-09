@@ -24,6 +24,7 @@ from frigate.comms.event_metadata_updater import (
 from frigate.comms.events_updater import EventEndSubscriber, EventUpdatePublisher
 from frigate.comms.inter_process import InterProcessRequestor
 from frigate.config import (
+    CameraConfig,
     CameraMqttConfig,
     FrigateConfig,
     RecordConfig,
@@ -81,6 +82,7 @@ class TrackedObjectProcessor(threading.Thread):
                 CameraConfigUpdateEnum.motion,
                 CameraConfigUpdateEnum.objects,
                 CameraConfigUpdateEnum.remove,
+                CameraConfigUpdateEnum.timestamp_style,
                 CameraConfigUpdateEnum.zones,
             ],
         )
@@ -127,8 +129,10 @@ class TrackedObjectProcessor(threading.Thread):
             )
 
         def update(camera: str, obj: TrackedObject, frame_name: str) -> None:
-            obj.has_snapshot = self.should_save_snapshot(camera, obj)
-            obj.has_clip = self.should_retain_recording(camera, obj)
+            obj.has_snapshot = self.should_save_snapshot(
+                camera_state.camera_config, obj
+            )
+            obj.has_clip = self.should_retain_recording(camera_state.camera_config, obj)
             after = obj.to_dict()
             message = {
                 "before": obj.previous,
@@ -152,8 +156,10 @@ class TrackedObjectProcessor(threading.Thread):
 
         def end(camera: str, obj: TrackedObject, frame_name: str) -> None:
             # populate has_snapshot
-            obj.has_snapshot = self.should_save_snapshot(camera, obj)
-            obj.has_clip = self.should_retain_recording(camera, obj)
+            obj.has_snapshot = self.should_save_snapshot(
+                camera_state.camera_config, obj
+            )
+            obj.has_clip = self.should_retain_recording(camera_state.camera_config, obj)
 
             # write thumbnail to disk if it will be saved as an event
             if obj.has_snapshot or obj.has_clip:
@@ -183,9 +189,9 @@ class TrackedObjectProcessor(threading.Thread):
             )
 
         def snapshot(camera: str, obj: TrackedObject) -> bool:
-            mqtt_config: CameraMqttConfig = self.config.cameras[camera].mqtt
-            if mqtt_config.enabled and self.should_mqtt_snapshot(camera, obj):
-                jpg_bytes = obj.get_img_bytes(
+            mqtt_config: CameraMqttConfig = camera_state.camera_config.mqtt
+            if mqtt_config.enabled and self.should_mqtt_snapshot(mqtt_config, obj):
+                jpg_bytes, _ = obj.get_img_bytes(
                     ext="jpg",
                     timestamp=mqtt_config.timestamp,
                     bounding_box=mqtt_config.bounding_box,
@@ -237,11 +243,13 @@ class TrackedObjectProcessor(threading.Thread):
         camera_state.on("camera_activity", camera_activity)
         self.camera_states[camera] = camera_state
 
-    def should_save_snapshot(self, camera: str, obj: TrackedObject) -> bool:
+    def should_save_snapshot(
+        self, camera_config: CameraConfig, obj: TrackedObject
+    ) -> bool:
         if obj.false_positive:
             return False
 
-        snapshot_config: SnapshotsConfig = self.config.cameras[camera].snapshots
+        snapshot_config: SnapshotsConfig = camera_config.snapshots
 
         if not snapshot_config.enabled:
             return False
@@ -260,11 +268,13 @@ class TrackedObjectProcessor(threading.Thread):
 
         return True
 
-    def should_retain_recording(self, camera: str, obj: TrackedObject) -> bool:
+    def should_retain_recording(
+        self, camera_config: CameraConfig, obj: TrackedObject
+    ) -> bool:
         if obj.false_positive:
             return False
 
-        record_config: RecordConfig = self.config.cameras[camera].record
+        record_config: RecordConfig = camera_config.record
 
         # Recording is disabled
         if not record_config.enabled:
@@ -280,13 +290,15 @@ class TrackedObjectProcessor(threading.Thread):
 
         return True
 
-    def should_mqtt_snapshot(self, camera: str, obj: TrackedObject) -> bool:
+    def should_mqtt_snapshot(
+        self, mqtt_config: CameraMqttConfig, obj: TrackedObject
+    ) -> bool:
         # object never changed position
         if obj.is_stationary():
             return False
 
         # if there are required zones and there is no overlap
-        required_zones = self.config.cameras[camera].mqtt.required_zones
+        required_zones = mqtt_config.required_zones
         if len(required_zones) > 0 and not set(obj.entered_zones) & set(required_zones):
             logger.debug(
                 f"Not sending mqtt for {obj.obj_data['id']} because it did not enter required zones"
@@ -296,7 +308,11 @@ class TrackedObjectProcessor(threading.Thread):
         return True
 
     def update_mqtt_motion(
-        self, camera: str, frame_time: float, motion_boxes: list
+        self,
+        camera: str,
+        camera_config: CameraConfig,
+        frame_time: float,
+        motion_boxes: list,
     ) -> None:
         # publish if motion is currently being detected
         if motion_boxes:
@@ -311,7 +327,7 @@ class TrackedObjectProcessor(threading.Thread):
             # always updated latest motion
             self.last_motion_detected[camera] = frame_time
         elif self.last_motion_detected.get(camera, 0) > 0:
-            mqtt_delay = self.config.cameras[camera].motion.mqtt_off_delay
+            mqtt_delay = camera_config.motion.mqtt_off_delay
 
             # If no motion, make sure the off_delay has passed
             if frame_time - self.last_motion_detected.get(camera, 0) >= mqtt_delay:
@@ -356,6 +372,9 @@ class TrackedObjectProcessor(threading.Thread):
 
     def get_current_frame_time(self, camera: str) -> float:
         """Returns the latest frame time for a given camera."""
+        if camera not in self.camera_states:
+            return 0.0
+
         return self.camera_states[camera].current_frame_time
 
     def set_sub_label(
@@ -515,6 +534,7 @@ class TrackedObjectProcessor(threading.Thread):
             duration,
             source_type,
             draw,
+            pre_capture,
         ) = payload
 
         # save the snapshot image
@@ -522,6 +542,11 @@ class TrackedObjectProcessor(threading.Thread):
             None, event_id, label, draw
         )
         end_time = frame_time + duration if duration is not None else None
+        start_time = (
+            frame_time - self.config.cameras[camera_name].record.event_pre_capture
+            if pre_capture is None
+            else frame_time - pre_capture
+        )
 
         # send event to event maintainer
         self.event_sender.publish(
@@ -536,13 +561,15 @@ class TrackedObjectProcessor(threading.Thread):
                     "sub_label": sub_label,
                     "score": score,
                     "camera": camera_name,
-                    "start_time": frame_time
-                    - self.config.cameras[camera_name].record.event_pre_capture,
+                    "start_time": start_time,
                     "end_time": end_time,
                     "has_clip": self.config.cameras[camera_name].record.enabled
                     and include_recording,
                     "has_snapshot": True,
+                    "snapshot_clean": True,
+                    "snapshot_frame_time": frame_time,
                     "type": source_type,
+                    "draw": draw,
                 },
             )
         )
@@ -598,6 +625,7 @@ class TrackedObjectProcessor(threading.Thread):
                     "has_clip": self.config.cameras[camera_name].record.enabled
                     and include_recording,
                     "has_snapshot": True,
+                    "snapshot_clean": True,
                     "type": "api",
                     "recognized_license_plate": plate,
                     "recognized_license_plate_score": score,
@@ -671,23 +699,26 @@ class TrackedObjectProcessor(threading.Thread):
             # check for config updates
             updated_topics = self.camera_config_subscriber.check_for_updates()
 
-            if "enabled" in updated_topics:
-                for camera in updated_topics["enabled"]:
-                    if self.camera_states[camera].prev_enabled is None:
-                        self.camera_states[camera].prev_enabled = self.config.cameras[
-                            camera
-                        ].enabled
-            elif "add" in updated_topics:
-                for camera in updated_topics["add"]:
-                    self.config.cameras[camera] = (
-                        self.camera_config_subscriber.camera_configs[camera]
-                    )
-                    self.create_camera_state(camera)
-            elif "remove" in updated_topics:
+            # a single drain can carry several topics at once, so add and
+            # remove are handled independently rather than as exclusive branches
+            for camera in updated_topics.get("add", []):
+                self.config.cameras[camera] = (
+                    self.camera_config_subscriber.camera_configs[camera]
+                )
+                self.create_camera_state(camera)
+
+            if "remove" in updated_topics:
                 for camera in updated_topics["remove"]:
-                    camera_state = self.camera_states[camera]
+                    camera_state = self.camera_states.get(camera)
+                    if camera_state is None:
+                        continue
+
                     camera_state.shutdown()
                     self.camera_states.pop(camera)
+                    self.camera_activity.pop(camera, None)
+                    self.last_motion_detected.pop(camera, None)
+
+                self.requestor.send_data(UPDATE_CAMERA_ACTIVITY, self.camera_activity)
 
             # manage camera disabled state
             for camera, config in self.config.cameras.items():
@@ -695,6 +726,10 @@ class TrackedObjectProcessor(threading.Thread):
                     continue
 
                 current_enabled = config.enabled
+                camera_state = self.camera_states.get(camera)
+                if camera_state is None:
+                    continue
+
                 camera_state = self.camera_states[camera]
 
                 if camera_state.prev_enabled and not current_enabled:
@@ -747,17 +782,23 @@ class TrackedObjectProcessor(threading.Thread):
             except queue.Empty:
                 continue
 
-            if not self.config.cameras[camera].enabled:
+            camera_config = self.config.cameras.get(camera)
+            if camera_config is None:
+                continue
+
+            if not camera_config.enabled:
                 logger.debug(f"Camera {camera} disabled, skipping update")
                 continue
 
-            camera_state = self.camera_states[camera]
+            camera_state = self.camera_states.get(camera)
+            if camera_state is None:
+                continue
 
             camera_state.update(
                 frame_name, frame_time, current_tracked_objects, motion_boxes, regions
             )
 
-            self.update_mqtt_motion(camera, frame_time, motion_boxes)
+            self.update_mqtt_motion(camera, camera_config, frame_time, motion_boxes)
 
             tracked_objects = [
                 o.to_dict() for o in camera_state.tracked_objects.values()
