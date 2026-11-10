@@ -17,7 +17,7 @@ For more detailed recommendations, you can refer to the docs on [annotating](./a
 
 ## Step 2: Submit a model request
 
-Once you have an initial set of verified images, you can request a model on the Models page. For guidance on choosing a model type, refer to [this part of the documentation](./index.md#available-model-types). If you are unsure which type to request, you can test the base model for each version from the "Base Models" tab. Each model request requires 1 of the 12 trainings that you receive with your annual subscription. This model will support all [label types available](./index.md#available-label-types) even if you do not submit any examples for those labels. Model creation can take up to 36 hours.
+Once you have an initial set of verified images, you can request a model on the Models page. For guidance on choosing a model type, refer to [this part of the documentation](./index.md#available-model-types). If you are unsure which type to request, you can test the base model for each version from the "Base Models" tab. For most hardware, `yolov9` is recommended; `mobiledet` is a legacy model type and will be removed in 2027. Each model request requires 1 of the 12 trainings that you receive with your annual subscription. This model will support all [label types available](./index.md#available-label-types) even if you do not submit any examples for those labels. Model creation can take up to 36 hours.
 ![Plus Models Page](/img/plus/plus-models.jpg)
 
 ## Step 3: Set your model
@@ -30,16 +30,15 @@ Models available in Frigate+ can be used with a special model path. No other inf
 <ConfigTabs>
 <TabItem value="ui">
 
-Navigate to <NavPath path="Settings > System > Detectors and model" />. In the **Detection Model** section, choose the **Frigate+** tab. Select your new Frigate+ model from the **Available Frigate+ models** dropdown, then click **Save**. Restart Frigate to apply the change.
+Navigate to <NavPath path="Settings > System > Detection models" />. On the model you want to change, choose the **Frigate+** tab and select your new Frigate+ model from the **Available Frigate+ models** dropdown, then click **Save**. Restart Frigate to apply the change.
 
 </TabItem>
 <TabItem value="yaml">
 
 ```yaml
-detectors: ...
-
-model:
-  path: plus://<your_model_id>
+models:
+  - devices: ...
+    path: plus://<your_model_id>
 ```
 
 :::tip

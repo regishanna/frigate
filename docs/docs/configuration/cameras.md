@@ -9,7 +9,7 @@ import NavPath from "@site/src/components/NavPath";
 
 ## Adding a camera with the Add Camera Wizard
 
-The Add Camera Wizard is the recommended way to add a camera. Click **Add Camera** in <NavPath path="Settings > Global configuration > Camera management" />. The wizard connects to your camera, tests each stream, and writes the camera's configuration for you, including the [go2rtc](go2rtc.md) restream and the live view stream mapping, so a standard setup needs no hand-written YAML.
+The Add Camera Wizard is the recommended way to add a camera. Click **Add Camera** in <NavPath path="Settings > Global configuration > Camera management" />, or use it from the [setup wizard](../guides/getting_started.md#configuring-frigate) on a new install. The wizard connects to your camera, tests each stream, and writes the camera's configuration for you, including the [go2rtc](go2rtc.md) restream and the live view stream mapping, so a standard setup needs no hand-written YAML.
 
 ### Step 1: Name and connection
 
@@ -83,11 +83,12 @@ A camera is enabled by default but can be disabled by using `enabled: False`. Ca
 
 Each role can only be assigned to one input per camera. The options for roles are as follows:
 
-| Role     | Description                                                                         |
-| -------- | ----------------------------------------------------------------------------------- |
-| `detect` | Main feed for object detection. [docs](object_detectors.md)                         |
-| `record` | Saves segments of the video feed based on configuration settings. [docs](record.md) |
-| `audio`  | Feed for audio based detection. [docs](audio_detectors.md)                          |
+| Role         | Description                                                                                                  |
+| ------------ | ------------------------------------------------------------------------------------------------------------ |
+| `detect`     | Main feed for object detection. [docs](object_detectors.md)                                                  |
+| `record`     | Saves segments of the video feed based on configuration settings. [docs](record.md)                          |
+| `record_sub` | Saves segments of a second, lower quality stream with its own retention. [docs](record.md#sub-stream-recording) |
+| `audio`      | Feed for audio based detection. [docs](audio_detectors.md)                                                   |
 
 <ConfigTabs>
 <TabItem value="ui">
@@ -224,36 +225,9 @@ An ONVIF-capable camera that supports relative movement within the field of view
 
 ## ONVIF PTZ camera recommendations
 
-This list of working and non-working PTZ cameras is based on user feedback. If you'd like to report specific quirks or issues with a manufacturer or camera that would be helpful for other users, open a pull request to add to this list.
+Before buying a PTZ camera, check its ONVIF support. The [ONVIF Conformant Products Database](https://www.onvif.org/conformant-products/) is the most reliable source. Look at a camera's FeatureList for `PTZRelative`, `PTZRelativePanTilt` and/or `PTZRelativeZoom`. Autotracking requires these features. If they are missing, autotracking will not work, though basic PTZ in the WebUI might. Some cameras still fail to respond even when they claim support. Avoid cameras with no database entry.
 
-The FeatureList on the [ONVIF Conformant Products Database](https://www.onvif.org/conformant-products/) can provide a starting point to determine a camera's compatibility with Frigate's autotracking. Look to see if a camera lists `PTZRelative`, `PTZRelativePanTilt` and/or `PTZRelativeZoom`. These features are required for autotracking, but some cameras still fail to respond even if they claim support. If they are missing, autotracking will not work (though basic PTZ in the WebUI might). Avoid cameras with no database entry unless they are confirmed as working below.
-
-| Brand or specific camera     | PTZ Controls | Autotracking | Notes                                                                                                                                                                                                                                                             |
-| ---------------------------- | :----------: | :----------: | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Amcrest                      |      ✅      |      ✅      | ⛔️ Generally, Amcrest should work, but some older models (like the common IP2M-841) don't support autotracking                                                                                                                                                    |
-| Amcrest ASH21                |      ✅      |      ❌      | ONVIF service port: 80                                                                                                                                                                                                                                            |
-| Amcrest IP4M-S2112EW-AI      |      ✅      |      ❌      | FOV relative movement not supported.                                                                                                                                                                                                                              |
-| Amcrest IP5M-1190EW          |      ✅      |      ❌      | ONVIF Port: 80. FOV relative movement not supported.                                                                                                                                                                                                              |
-| Annke CZ504                  |      ✅      |      ❌      |                                                                                                                                                                                                                                                                   |
-| Axis Q-6155E                 |      ✅      |      ❌      | ONVIF service port: 80; Camera does not support MoveStatus.                                                                                                                                                                                                       |
-| Ctronics PTZ                 |      ✅      |      ❌      |                                                                                                                                                                                                                                                                   |
-| Dahua                        |      ✅      |      ✅      | Some low-end Dahuas (lite series, picoo series (commonly), among others) have been reported to not support autotracking. These models usually don't have a four digit model number with chassis prefix and options postfix (e.g. DH-P5AE-PV vs DH-SD49825GB-HNR). |
-| Dahua DH-SD2A500HB           |      ✅      |      ❌      |                                                                                                                                                                                                                                                                   |
-| Dahua DH-SD49825GB-HNR       |      ✅      |      ✅      |                                                                                                                                                                                                                                                                   |
-| Dahua DH-P5AE-PV             |      ❌      |      ❌      |                                                                                                                                                                                                                                                                   |
-| Foscam                       |      ✅      |      ❌      | In general support PTZ, but not relative move. There are no official ONVIF certifications and tests available on the ONVIF Conformant Products Database                                                                                                           |
-| Foscam R5                    |      ✅      |      ❌      |                                                                                                                                                                                                                                                                   |
-| Foscam SD4                   |      ✅      |      ❌      |                                                                                                                                                                                                                                                                   |
-| Hanwha XNP-6550RH            |      ✅      |      ❌      |                                                                                                                                                                                                                                                                   |
-| Hikvision                    |      ✅      |      ❌      | Incomplete ONVIF support (MoveStatus won't update even on latest firmware) - reported with HWP-N4215IH-DE and DS-2DE3304W-DE, but likely others                                                                                                                   |
-| Hikvision DS-2DE3A404IWG-E/W |      ✅      |      ✅      |                                                                                                                                                                                                                                                                   |
-| Reolink                      |      ✅      |      ❌      |                                                                                                                                                                                                                                                                   |
-| Speco O8P32X                 |      ✅      |      ❌      |                                                                                                                                                                                                                                                                   |
-| Sunba 405-D20X               |      ✅      |      ❌      | Incomplete ONVIF support reported on original, and 4k models. All models are suspected incompatible.                                                                                                                                                              |
-| Tapo                         |      ✅      |      ❌      | Many models supported, ONVIF Service Port: 2020                                                                                                                                                                                                                   |
-| Uniview IPC672LR-AX4DUPK     |      ✅      |      ❌      | Firmware says FOV relative movement is supported, but camera doesn't actually move when sending ONVIF commands                                                                                                                                                    |
-| Uniview IPC6612SR-X33-VG     |      ✅      |      ✅      | Leave `calibrate_on_startup` as `False`. A user has reported that zooming with `absolute` is working.                                                                                                                                                             |
-| Vikylin PTZ-2804X-I2         |      ❌      |      ❌      | Incomplete ONVIF support                                                                                                                                                                                                                                          |
+The [CCTV Camera Database](https://www.cctv-database.com/) is an open database of IP camera specifications and is useful for researching a specific model.
 
 ## Setting up camera groups
 
