@@ -337,7 +337,7 @@
     "title": "Cette page a cesser de fonctionner",
     "desc": "Une erreur inattendue s'est produite sur la page. Un rechargement permet généralement de la résoudre. Si le problème persiste, copiez les détails et joignez-les à une discussion sur GitHub.",
     "staleTitle": "Rechargement requis",
-    "staleDesc": "Une partie de l'interface n'a pas pu être chargée, ce qui signifie généralement que Frigate a été mis à jour alors que cet onglet était ouvert. Actualisez la page pour charger la nouvelle version.",
+    "staleDesc": "Une partie de l'interface n'a pas pu être chargée, ce qui signifie généralement que lachouette a été mis à jour alors que cet onglet était ouvert. Actualisez la page pour charger la nouvelle version.",
     "partial": "Une partie de l'interface a cessé de fonctionner",
     "copyDetails": "Coper les détails",
     "copyFailed": "Impossible de copier les détails dans le presse-papiers"

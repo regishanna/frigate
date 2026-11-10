@@ -1158,7 +1158,7 @@
       },
       "toast": {
         "success": "Paramètres copiés vers {{cameraName}}",
-        "successWithRestart": "Paramètres copiés vers {{cameraName}}. Redémarrez Frigate afin d'appliquer tous les changements.",
+        "successWithRestart": "Paramètres copiés vers {{cameraName}}. Redémarrez lachouette afin d'appliquer tous les changements.",
         "successMulti_one": "Paramètres copiés vers {{count}} caméra",
         "successMulti_many": "Paramètres copiés vers {{count}} caméras",
         "successMulti_other": "Paramètres copiés vers {{count}} caméras"

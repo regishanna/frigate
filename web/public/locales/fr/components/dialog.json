@@ -26,7 +26,7 @@
           "ask_full": "Cet objet est-il un(e) <code>{{translatedLabel}}</code>  ?"
         },
         "toast": {
-          "error": "Impossible d'envoyer à Frigate+. Merci de vérifier votre réseau puis de réessayer."
+          "error": "Impossible d'envoyer à lachouette+. Merci de vérifier votre réseau puis de réessayer."
         }
       }
     },
@@ -196,10 +196,10 @@
     "shareTimestamp": {
       "label": "Partager cette date",
       "title": "Partager cette date",
-      "description": "Partager une URL horodatée correspondant à la position actuelle du lecteur, ou choisir un horodatage personnalisé. Notez qu’il ne s’agit pas d’un lien de partage public et qu’il est uniquement accessible aux utilisateurs ayant accès à Frigate et à cette caméra.",
+      "description": "Partager une URL horodatée correspondant à la position actuelle du lecteur, ou choisir un horodatage personnalisé. Notez qu’il ne s’agit pas d’un lien de partage public et qu’il est uniquement accessible aux utilisateurs ayant accès à lachouette et à cette caméra.",
       "custom": "Horodatage personnalisé",
       "button": "Partager le lien de l'horodatage",
-      "shareTitle": "Horodatage de la revue Frigate : {{camera}}"
+      "shareTitle": "Horodatage de la revue lachouette: {{camera}}"
     },
     "genaiDescription": {
       "toast": {
